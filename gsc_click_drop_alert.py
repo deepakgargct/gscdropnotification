@@ -9,7 +9,7 @@ from googleapiclient.discovery import build
 # Load credentials from environment variable
 SERVICE_ACCOUNT_INFO = json.loads(os.environ['GSC_CREDENTIALS'])
 SCOPES = ['https://www.googleapis.com/auth/webmasters.readonly']
-SITE_URL = 'https://coalitiontechnologies.com/'  # Replace with your domain
+SITE_URL = 'https://libertypainting.net/'  # Replace with your domain
 ALERT_EMAIL = 'deepak.garg@coalitiontechnologies.com'        # Your email to receive alert
 GMAIL_USER = os.environ['GMAIL_USER']
 GMAIL_PASS = os.environ['GMAIL_PASS']
