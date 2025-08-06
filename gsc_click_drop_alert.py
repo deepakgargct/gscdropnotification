@@ -1,65 +1,51 @@
-import datetime
-import smtplib
-from email.mime.text import MIMEText
-import json
 import os
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+import smtplib
+from email.mime.text import MIMEText
+from datetime import date, timedelta
 
-# Load credentials from environment variable
-SERVICE_ACCOUNT_INFO = json.loads(os.environ['GSC_CREDENTIALS'])
-SCOPES = ['https://www.googleapis.com/auth/webmasters.readonly']
-SITE_URL = 'https://libertypainting.net/'  # Replace with your domain
-ALERT_EMAIL = 'deepak.garg@coalitiontechnologies.com'        # Your email to receive alert
-GMAIL_USER = os.environ['GMAIL_USER']
-GMAIL_PASS = os.environ['GMAIL_PASS']
-DROP_THRESHOLD = 0.3  # 30%
+# Load credentials from file
+creds = service_account.Credentials.from_service_account_file(
+    "secrets/service_account.json",
+    scopes=["https://www.googleapis.com/auth/webmasters.readonly"]
+)
 
-def get_clicks(service, start_date, end_date):
-    request = {
-        'startDate': start_date,
-        'endDate': end_date,
-        'dimensions': ['date'],
-    }
-    response = service.searchanalytics().query(siteUrl=SITE_URL, body=request).execute()
-    return sum(row['clicks'] for row in response.get('rows', []))
+webmasters = build("searchconsole", "v1", credentials=creds)
 
-def send_email_alert(old_clicks, new_clicks, drop_pct):
-    msg = MIMEText(f"""
-🚨 GSC Alert: Drop in Clicks Detected
+# Replace with your property
+site_url = "https://libertypainting.net/"
 
-Old Clicks: {old_clicks}
-New Clicks: {new_clicks}
-Drop: {drop_pct*100:.2f}%
+# Date range
+today = date.today()
+yesterday = today - timedelta(days=1)
+day_before = today - timedelta(days=2)
 
-Check Google Search Console for details.
-""")
-    msg['Subject'] = '⚠️ GSC Clicks Drop Alert'
-    msg['From'] = GMAIL_USER
-    msg['To'] = ALERT_EMAIL
+def get_clicks(date_str):
+    response = webmasters.searchanalytics().query(
+        siteUrl=site_url,
+        body={
+            "startDate": date_str,
+            "endDate": date_str,
+            "dimensions": ["date"],
+        },
+    ).execute()
+    if "rows" in response:
+        return response["rows"][0]["clicks"]
+    return 0
 
-    with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
-        server.login(GMAIL_USER, GMAIL_PASS)
+clicks_yesterday = get_clicks(str(yesterday))
+clicks_day_before = get_clicks(str(day_before))
+
+# Send alert if drop is more than 30%
+if clicks_day_before > 0 and (clicks_yesterday / clicks_day_before) < 0.7:
+    drop = clicks_day_before - clicks_yesterday
+    drop_pct = round((drop / clicks_day_before) * 100, 2)
+    msg = MIMEText(f"⚠️ Alert: Clicks dropped by {drop_pct}%!\n\nYesterday: {clicks_yesterday}\nDay Before: {clicks_day_before}")
+    msg["Subject"] = "GSC Alert: Significant Click Drop"
+    msg["From"] = os.environ["GMAIL_USER"]
+    msg["To"] = os.environ["GMAIL_USER"]
+
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+        server.login(os.environ["GMAIL_USER"], os.environ["GMAIL_PASS"])
         server.send_message(msg)
-
-def main():
-    creds = service_account.Credentials.from_service_account_info(SERVICE_ACCOUNT_INFO, scopes=SCOPES)
-    service = build('searchconsole', 'v1', credentials=creds)
-
-    today = datetime.date.today()
-    yesterday = str(today - datetime.timedelta(days=1))
-    day_before = str(today - datetime.timedelta(days=2))
-
-    clicks_yesterday = get_clicks(service, yesterday, yesterday)
-    clicks_day_before = get_clicks(service, day_before, day_before)
-
-    if clicks_day_before == 0:
-        return
-
-    drop_pct = (clicks_day_before - clicks_yesterday) / clicks_day_before
-
-    if drop_pct >= DROP_THRESHOLD:
-        send_email_alert(clicks_day_before, clicks_yesterday, drop_pct)
-
-if __name__ == '__main__':
-    main()
